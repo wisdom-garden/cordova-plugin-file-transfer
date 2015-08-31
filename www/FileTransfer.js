@@ -232,4 +232,12 @@ FileTransfer.prototype.abort = function() {
     exec(null, null, 'FileTransfer', 'abort', [this._id]);
 };
 
+/**
+ * Pauses the ongoing file transfer on this object. The original error
+ * callback for the file transfer will be called if necessary.
+ */
+FileTransfer.prototype.pause = function() {
+    exec(null, null, 'FileTransfer', 'pause', [this._id]);
+};
+
 module.exports = FileTransfer;
