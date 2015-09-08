@@ -212,6 +212,7 @@ public class FileTransfer extends CordovaPlugin {
                 String headerKey = iter.next().toString();
                 headerKey = headerKey.replaceAll("\\n","")
                         .replaceAll("\\s+","")
+                        .replaceAll(":", "")
                         .replaceAll("[^\\x20-\\x7E]+", "");
 
                 JSONArray headerValues = headers.optJSONArray(headerKey);
