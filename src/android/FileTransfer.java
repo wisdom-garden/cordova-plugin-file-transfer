@@ -262,7 +262,7 @@ public class FileTransfer extends CordovaPlugin {
         } catch (ClassCastException e) {
         }
 
-        if (!gotCookie) {
+        if (!gotCookie && CookieManager.getInstance() != null) {
             cookie = CookieManager.getInstance().getCookie(target);
         }
 
