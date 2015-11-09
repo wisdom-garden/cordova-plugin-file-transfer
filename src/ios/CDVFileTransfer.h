@@ -26,7 +26,8 @@ enum CDVFileTransferError {
     INVALID_URL_ERR = 2,
     CONNECTION_ERR = 3,
     CONNECTION_ABORTED = 4,
-    CONNECTION_PAUSED = 5
+    NOT_MODIFIED = 5,
+    CONNECTION_PAUSED = 6
 };
 typedef int CDVFileTransferError;
 
