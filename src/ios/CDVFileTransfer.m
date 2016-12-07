@@ -420,7 +420,7 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
         CDVFileTransferDelegate* delegate = activeTransfers[objectId];
         if (delegate != nil) {
             [delegate pauseTransfer:delegate.connection];
-            CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsDictionary:[self createFileTransferError:CONNECTION_PAUSED AndSource:delegate.source AndTarget:delegate.target]];
+            CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_PAUSED messageAsDictionary:[self createFileTransferError:CONNECTION_PAUSED AndSource:delegate.source AndTarget:delegate.target]];
             [self.commandDelegate sendPluginResult:result callbackId:delegate.callbackId];
         }
     }
