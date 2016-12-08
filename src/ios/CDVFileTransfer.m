@@ -876,9 +876,6 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
         BOOL lengthComputable = (self.bytesExpected != NSURLResponseUnknownLength);
         // If the response is GZipped, and we have an outstanding HEAD request to get
         // the length, then hold off on sending progress events.
-        if (!lengthComputable && (self.entityLengthRequest != nil)) {
-            return;
-        }
         NSMutableDictionary* downloadProgress = [NSMutableDictionary dictionaryWithCapacity:3];
         [downloadProgress setObject:[NSNumber numberWithBool:lengthComputable] forKey:@"lengthComputable"];
         [downloadProgress setObject:[NSNumber numberWithLongLong:self.bytesTransfered] forKey:@"loaded"];

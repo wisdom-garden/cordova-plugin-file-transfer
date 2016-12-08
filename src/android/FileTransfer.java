@@ -831,8 +831,11 @@ public class FileTransfer extends CordovaPlugin {
                     if (isLocalTransfer) {
                         readResult = resourceApi.openForRead(sourceUri);
                         if (readResult.length != -1) {
-                            progress.setLengthComputable(true);
-                            progress.setTotal(readResult.length);
+                          progress.setLengthComputable(true);
+                          progress.setTotal(readResult.length);
+                        } else {
+                          progress.setLengthComputable(false);
+                          progress.setTotal(-1);
                         }
                         inputStream = new SimpleTrackingInputStream(readResult.inputStream);
                     } else {
@@ -886,6 +889,9 @@ public class FileTransfer extends CordovaPlugin {
                                 if (connection.getContentLength() != -1) {
                                     progress.setLengthComputable(true);
                                     progress.setTotal(connection.getContentLength() + downloaded);
+                                } else {
+                                    progress.setLengthComputable(false);
+                                    progress.setTotal(-1);
                                 }
                             }
                             inputStream = getInputStream(connection);
