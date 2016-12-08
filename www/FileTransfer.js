@@ -178,23 +178,14 @@ FileTransfer.prototype.upload = function(filePath, server, successCallback, erro
 FileTransfer.prototype.download = function(source, target, successCallback, errorCallback, trustAllHosts, options) {
     argscheck.checkArgs('ssFF*', 'FileTransfer.download', arguments);
     var self = this;
+    options = options || {resume: false};
+    options.headers = options.headers || {};
 
     var basicAuthHeader = getBasicAuthHeader(source);
     if (basicAuthHeader) {
         source = source.replace(getUrlCredentials(source) + '@', '');
 
-        options = options || {};
-        options.headers = options.headers || {};
         options.headers[basicAuthHeader.name] = basicAuthHeader.value;
-    }
-
-    var headers = null;
-    if (options) {
-        headers = options.headers || null;
-    }
-
-    if (cordova.platformId === "windowsphone" && headers) {
-        headers = convertHeadersToArray(headers);
     }
 
     var win = function(result) {
@@ -225,7 +216,7 @@ FileTransfer.prototype.download = function(source, target, successCallback, erro
         errorCallback(error);
     };
 
-    exec(win, fail, 'FileTransfer', 'download', [source, target, trustAllHosts, this._id, headers]);
+    exec(win, fail, 'FileTransfer', 'download', [source, target, trustAllHosts, this._id, options]);
 };
 
 /**
@@ -234,6 +225,14 @@ FileTransfer.prototype.download = function(source, target, successCallback, erro
  */
 FileTransfer.prototype.abort = function() {
     exec(null, null, 'FileTransfer', 'abort', [this._id]);
+};
+
+/**
+ * Pauses the ongoing file transfer on this object. The original error
+ * callback for the file transfer will be called if necessary.
+ */
+FileTransfer.prototype.pause = function() {
+    exec(null, null, 'FileTransfer', 'pause', [this._id]);
 };
 
 module.exports = FileTransfer;

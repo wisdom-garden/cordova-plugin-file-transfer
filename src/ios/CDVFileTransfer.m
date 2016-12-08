@@ -412,6 +412,35 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
     }
 }
 
+- (void)pause:(CDVInvokedUrlCommand*)command
+{
+    NSString* objectId = [command argumentAtIndex:0];
+
+    @synchronized (activeTransfers) {
+        CDVFileTransferDelegate* delegate = activeTransfers[objectId];
+        if (delegate != nil) {
+            [delegate pauseTransfer:delegate.connection];
+            CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsDictionary:[self createFileTransferError:CONNECTION_PAUSED AndSource:delegate.source AndTarget:delegate.target]];
+            [self.commandDelegate sendPluginResult:result callbackId:delegate.callbackId];
+        }
+    }
+}
+
+- (NSString *)targetFilePath:(NSString*)target
+{
+    NSString *path = nil;
+    CDVFilesystemURL *sourceURL = [CDVFilesystemURL fileSystemURLWithString:target];
+    if (sourceURL && sourceURL.fileSystemName != nil) {
+        // This requires talking to the current CDVFile plugin
+        NSObject<CDVFileSystem> *fs = [[self.commandDelegate getCommandInstance:@"File"] filesystemForURL:sourceURL];
+        path = [fs filesystemPathForURL:sourceURL];
+    } else {
+        // Extract the path part out of a file: URL.
+        path = [target hasPrefix:@"/"] ? [target copy] : [(NSURL *)[NSURL URLWithString:target] path];
+    }
+    return path;
+}
+
 - (void)download:(CDVInvokedUrlCommand*)command
 {
     DLog(@"File Transfer downloading file...");
@@ -419,7 +448,8 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
     NSString* target = [command argumentAtIndex:1];
     BOOL trustAllHosts = [[command argumentAtIndex:2 withDefault:[NSNumber numberWithBool:NO]] boolValue]; // allow self-signed certs
     NSString* objectId = [command argumentAtIndex:3];
-    NSDictionary* headers = [command argumentAtIndex:4 withDefault:nil];
+    NSDictionary* options = [command argumentAtIndex:4 withDefault:nil];
+    NSDictionary* headers = options[@"headers"];
 
     CDVPluginResult* result = nil;
     CDVFileTransferError errorCode = 0;
@@ -456,6 +486,22 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
     }
 
     NSMutableURLRequest* req = [NSMutableURLRequest requestWithURL:sourceURL];
+
+    NSUInteger downloadedBytes = 0;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *targetPath = [self targetFilePath:[targetURL absoluteString]];
+    if ([fm fileExistsAtPath:targetPath]) {
+        NSError *error = nil;
+        NSDictionary *fileDictionary = [fm attributesOfItemAtPath:targetPath error:&error];
+        if (!error && fileDictionary)
+            downloadedBytes = [fileDictionary fileSize];
+    }
+
+    if (downloadedBytes > 0) {
+        NSString *requestRange = [NSString stringWithFormat:@"bytes=%d-", downloadedBytes];
+        [req setValue:requestRange forHTTPHeaderField:@"Range"];
+    }
+
     [self applyRequestHeaders:headers toRequest:req];
 
     CDVFileTransferDelegate* delegate = [[CDVFileTransferDelegate alloc] init];
@@ -670,6 +716,17 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
     }
 }
 
+- (void)pauseTransfer:(NSURLConnection*)connection
+{
+    [connection cancel];
+    @synchronized (self.command.activeTransfers) {
+        CDVFileTransferDelegate* delegate = self.command.activeTransfers[self.objectId];
+        [self.command.activeTransfers removeObjectForKey:self.objectId];
+        [[UIApplication sharedApplication] endBackgroundTask:delegate.backgroundTaskID];
+        delegate.backgroundTaskID = UIBackgroundTaskInvalid;
+    }
+}
+
 - (void)cancelTransferWithError:(NSURLConnection*)connection errorMessage:(NSString*)errorMessage
 {
     CDVPluginResult* result = [CDVPluginResult resultWithStatus:CDVCommandStatus_IO_EXCEPTION messageAsDictionary:[self.command createFileTransferError:FILE_NOT_FOUND_ERR AndSource:self.source AndTarget:self.target AndHttpStatus:self.responseCode AndBody:errorMessage]];
@@ -731,28 +788,56 @@ static CFIndex WriteDataToStream(NSData* data, CFWriteStreamRef stream)
             return;
         }
 
-        NSString* parentPath = [filePath stringByDeletingLastPathComponent];
+        if (self.responseCode == 206) {
+            self.targetFileHandle = [NSFileHandle fileHandleForWritingAtPath:[self targetFilePath]];
+            NSString *range = [self.responseHeaders valueForKey:@"Content-Range"];
+            NSError *error = nil;
+            NSRegularExpression *regex = nil;
 
-        // create parent directories if needed
-        if ([[NSFileManager defaultManager] createDirectoryAtPath:parentPath withIntermediateDirectories:YES attributes:nil error:&error] == NO) {
-            if (error) {
-                [self cancelTransferWithError:connection errorMessage:[NSString stringWithFormat:@"Could not create path to save downloaded file: %@", [error localizedDescription]]];
-            } else {
-                [self cancelTransferWithError:connection errorMessage:@"Could not create path to save downloaded file"];
+            regex = [NSRegularExpression regularExpressionWithPattern:@"bytes (\\d+)-\\d+/\\d+" options:NSRegularExpressionCaseInsensitive error:&error];
+            if (error){
+                [self.targetFileHandle truncateFileAtOffset:0];
             }
-            return;
+
+            NSTextCheckingResult *match = [regex firstMatchInString:range options:NSMatchingAnchored range:NSMakeRange(0, range.length)];
+            if (match.numberOfRanges < 2) {
+                [self.targetFileHandle truncateFileAtOffset:0];
+            }
+
+            NSString *byteStr = [range substringWithRange:[match rangeAtIndex:1]];
+            NSInteger bytes = [byteStr integerValue];
+            self.bytesTransfered = bytes;
+            self.bytesExpected += bytes;
+            if (bytes <= 0) {
+                [self.targetFileHandle truncateFileAtOffset:0];
+            }
+            else {
+                [self.targetFileHandle seekToFileOffset:bytes];
+            }
+        } else {
+            NSString* parentPath = [filePath stringByDeletingLastPathComponent];
+
+            // create parent directories if needed
+            if ([[NSFileManager defaultManager] createDirectoryAtPath:parentPath withIntermediateDirectories:YES attributes:nil error:&error] == NO) {
+                if (error) {
+                    [self cancelTransferWithError:connection errorMessage:[NSString stringWithFormat:@"Could not create path to save downloaded file: %@", [error localizedDescription]]];
+                } else {
+                    [self cancelTransferWithError:connection errorMessage:@"Could not create path to save downloaded file"];
+                }
+                return;
+            }
+            // create target file
+            if ([[NSFileManager defaultManager] createFileAtPath:filePath contents:nil attributes:nil] == NO) {
+                [self cancelTransferWithError:connection errorMessage:@"Could not create target file"];
+                return;
+            }
+            // open target file for writing
+            self.targetFileHandle = [NSFileHandle fileHandleForWritingAtPath:filePath];
+            if (self.targetFileHandle == nil) {
+                [self cancelTransferWithError:connection errorMessage:@"Could not open target file for writing"];
+            }
+            DLog(@"Streaming to file %@", filePath);
         }
-        // create target file
-        if ([[NSFileManager defaultManager] createFileAtPath:filePath contents:nil attributes:nil] == NO) {
-            [self cancelTransferWithError:connection errorMessage:@"Could not create target file"];
-            return;
-        }
-        // open target file for writing
-        self.targetFileHandle = [NSFileHandle fileHandleForWritingAtPath:filePath];
-        if (self.targetFileHandle == nil) {
-            [self cancelTransferWithError:connection errorMessage:@"Could not open target file for writing"];
-        }
-        DLog(@"Streaming to file %@", filePath);
     }
 }
 
